@@ -43,7 +43,7 @@ void main (int argc, char *argv[]){
     // Broadcast n to all processes.
     MPI_Bcast(n, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-
+    // Initialize local_n "Number of elements per process", and row_per_p "Number of matrix rows per process" 
     local_n = (n[0]*n[0])/comm_size;
     row_per_p = local_n/n[0];
     
@@ -52,7 +52,8 @@ void main (int argc, char *argv[]){
     // New [end]
 
 
-    double b[n[0] * n[0]];//, a[local_n * local_n];
+
+    double b[n[0] * n[0]];
     double *a = NULL;
     int b_row_counter;
 
@@ -63,10 +64,10 @@ void main (int argc, char *argv[]){
         double *temp_b = NULL;
         temp_b = (double *)malloc((n[0]*n[0]) * sizeof(double));
         a = (double *)malloc((n[0]*n[0]) * sizeof(double));
-
+        // New 
         int i, j;
 
-        // b_row_counter is to keep track of which row we are scattering to all processes.
+        // b_row is to keep track of which row we are scattering to all processes.
         b_row_counter = 0;
 
         FILE *fp;
@@ -75,7 +76,7 @@ void main (int argc, char *argv[]){
         fp = fopen(fname, "r");
         fscanf(fp, "%d", n);
 
-        // The counter is used to seperate what values are being read, a's values, then b's values.
+        // The counter is used to seperate what we are reading a's values, then b's values.
         int counter = 2;
         while (counter > 0){
             for (i=0; i<n[0]*n[0]; i++){                
@@ -99,7 +100,9 @@ void main (int argc, char *argv[]){
             counter = n[0]; // to get the 2nd and 3rd indices in b.
         }
 
+        // New.
         free(temp_b);
+        // New
         fclose(fp);
 
         /*
@@ -146,14 +149,17 @@ void main (int argc, char *argv[]){
     int local_i;
     double local_c[local_n];
     local_i = 0;
+    // New 6/6/2020 [begin]
+    double *temp_local_b;
+    temp_local_b = (double *)malloc(local_n * sizeof(double));
     int counter = 0;
-
+    // New [end]
     for (int i = 0; i < local_n/row_per_p; i++){
         for (int j=0; j<row_per_p; j++){
             local_c[j+counter*i] = mat_mult(local_n/row_per_p, j, local_a, local_b); 
         }
         counter = row_per_p;
-        if (local_i < n[0]-1){
+        if (local_i <= n[0]-1){
             if (my_rank == 0 ){
                 // Get only the b_row_counter's row of b, and assign it to b_row.
                 for (int j = 0; j < n[0]; j++){
@@ -161,10 +167,10 @@ void main (int argc, char *argv[]){
                         b_row_counter = (b_row_counter+1) % n[0];    
                     }
                     // New 6/6/2020 [begin]
+                    //temp_local_b[j] =b[j+(b_row_counter*local_n)];
                     local_b[j] = b[j+(b_row_counter*n[0])];
                     // New [end]
-                } // Now, only process 0 has local_b.
-                
+                } // Now, only process 0 has local_b.                
 
             }
             // Block all processes, untill all of them reaches here.
@@ -181,32 +187,59 @@ void main (int argc, char *argv[]){
     // Block all processes, untill all of them reaches here.
     MPI_Barrier(MPI_COMM_WORLD);
 
-    
-    // Print the values of C to check for correctness.
+    double c[n[0] * n[0]];
+
+    // Print the values of C, in the output file for correcteness.
     if (my_rank == 0){
+        MPI_Gather(local_c, local_n, MPI_DOUBLE, c, local_n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+
         // Initialize end_time.
         end_t = clock();
         clock_gettime(CLOCK_MONOTONIC, &ts2);
+        
+        // Variable to help print the result in a row_major order.
+        int row_break = 0;
+        char fname[100];
+        FILE *fp;
+       
+       // The output file name is passed as a second argument to the file.
+        sprintf(fname, argv[2]);
+        fp = fopen(fname, "w");
+        for (int i = 0; i < n[0] * 3; i++){
+            row_break++;
+            if (i  == 0){
+                fprintf(fp, "C :\n");
+            }
 
-
-        // Get Execution time.
+            fprintf(fp, "%lf ", c[i]);
+            
+            if (row_break == n[0]){
+                fprintf(fp, "\n");
+                row_break = 0;
+            }      
+        }
+        // Write exexution time in the output file.
         double time_taken;
         time_taken = ((double)end_t -start_t) / CLOCKS_PER_SEC;
          
         total_t = (ts2.tv_sec - ts1.tv_sec) * 1e9; 
         total_t = (total_t + (ts2.tv_nsec - ts1.tv_nsec)) * 1e-9; 
-        
-        // Only the time in seconds will be written to stdout.
+        fprintf(fp, "Real execution time in seconds : %f\n", total_t);
+        fprintf(fp, "Clock execution time in seconds : %f\n", time_taken);
         fprintf(stdout, "%f\n", total_t);
-
+        fclose(fp);
+    } else {
+        MPI_Gather(local_c, local_n, MPI_DOUBLE, c, local_n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     } 
-
     // Block all processes, untill all of them reaches here.
     MPI_Barrier(MPI_COMM_WORLD);
 
+    // Free all dynamically allocated arrays.
     
-    // Block all processes, untill all of them reaches here.
-    MPI_Barrier(MPI_COMM_WORLD);
+    // New 6/6/2020 [Begin]
+    free(temp_local_b);
+    // New [End]
 
     // End MPI.
     MPI_Finalize();
